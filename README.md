@@ -1,4 +1,4 @@
-# AI-Powered Distributed Food Supply Chain Optimization & Inventory Redistribution System
+## AI-Powered Distributed Food Supply Chain Optimization & Inventory Redistribution System
 
 **FoodChain AI** is an intelligent supply chain management platform designed to minimize food wastage, optimize inventory distribution, and improve demand forecasting accuracy across multiple warehouses and retail nodes. Moving beyond static inventory trackers, the system analyzes historical sales data, predicts future demand, detects spoilage risks, and delivers prescriptive redistribution recommendations to supply chain managers in real time.
 
