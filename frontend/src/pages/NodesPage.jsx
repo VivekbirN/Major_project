@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
-import { getNodes } from '../api/inventory'
+import { getNodes } from '../api/nodes'
 import { useAuth } from '../context/AuthContext'
 
 const TYPE_CONFIG = {

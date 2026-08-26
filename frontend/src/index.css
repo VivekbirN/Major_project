@@ -109,4 +109,59 @@
     @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
            text-gray-600 cursor-not-allowed;
   }
+
+  /* Stock status badges */
+  .badge-healthy    { @apply badge bg-green-900/60 text-green-300 border border-green-700/50; }
+  .badge-low-stock  { @apply badge bg-yellow-900/60 text-yellow-300 border border-yellow-700/50; }
+  .badge-overstock  { @apply badge bg-blue-900/60 text-blue-300 border border-blue-700/50; }
+  .badge-near-expiry{ @apply badge bg-orange-900/60 text-orange-300 border border-orange-700/50; }
+  .badge-critical   { @apply badge bg-red-900/60 text-red-300 border border-red-700/50; }
+
+  /* Capacity status badges */
+  .badge-normal   { @apply badge bg-green-900/60 text-green-300 border border-green-700/50; }
+  .badge-moderate { @apply badge bg-yellow-900/60 text-yellow-300 border border-yellow-700/50; }
+  .badge-high-cap { @apply badge bg-orange-900/60 text-orange-300 border border-orange-700/50; }
+  .badge-critical-cap { @apply badge bg-red-900/60 text-red-300 border border-red-700/50; }
+
+  /* Transaction type badges */
+  .badge-incoming   { @apply badge bg-green-900/60 text-green-300 border border-green-700/50; }
+  .badge-outgoing   { @apply badge bg-red-900/60 text-red-300 border border-red-700/50; }
+  .badge-adjustment { @apply badge bg-blue-900/60 text-blue-300 border border-blue-700/50; }
+  .badge-spoilage   { @apply badge bg-orange-900/60 text-orange-300 border border-orange-700/50; }
+
+  /* Btn variants */
+  .btn-danger {
+    @apply bg-red-700 hover:bg-red-600 text-white font-medium px-5 py-2.5 rounded-lg 
+           transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-500
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply bg-surface-700 hover:bg-surface-600 border border-surface-500 text-gray-200 font-medium px-5 py-2.5 rounded-lg 
+           transition-all duration-200 focus:outline-none
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Modal overlay */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4;
+  }
+  .modal-box {
+    @apply bg-surface-800 border border-surface-600 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto;
+  }
+
+  /* Select field */
+  .select-field {
+    @apply bg-surface-700 border border-surface-500 text-gray-100 rounded-lg px-4 py-2.5 w-full
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+           transition-all duration-200;
+  }
+
+  /* Animate fade in */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in {
+    animation: fadeIn 0.25s ease-out;
+  }
 }

@@ -11,6 +11,10 @@ const { sendSuccess } = require('./utils/responseHelper');
 const authRoutes = require('./routes/authRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
+const nodeRoutes = require('./routes/nodeRoutes');
+const productRoutes = require('./routes/productRoutes');
+const spoilageRoutes = require('./routes/spoilageRoutes');
+const mlRoutes = require('./routes/mlRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,14 +47,10 @@ app.get('/api/v1/health', (req, res) => {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/inventory', inventoryRoutes);
-
-// Top-level convenience routes (spec requires GET /api/v1/products and GET /api/v1/nodes)
-const { authenticate } = require('./middleware/authMiddleware');
-const { authorizeRoles } = require('./middleware/rbacMiddleware');
-const { getProducts, getNodes } = require('./controllers/inventoryController');
-
-app.get('/api/v1/products', authenticate, authorizeRoles('SUPPLY_CHAIN_MANAGER', 'WAREHOUSE_ADMIN', 'VIEWER'), getProducts);
-app.get('/api/v1/nodes', authenticate, authorizeRoles('SUPPLY_CHAIN_MANAGER', 'WAREHOUSE_ADMIN', 'VIEWER'), getNodes);
+app.use('/api/v1/nodes', nodeRoutes);
+app.use('/api/v1/products', productRoutes);
+app.use('/api/v1/spoilage', spoilageRoutes);
+app.use('/api/v1/ml', mlRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('✅ Database connection established');
 
-    // Sync models without dropping tables in dev
+    // Sync new tables without dropping existing ones
     await sequelize.sync({ alter: false });
     console.log('✅ Database models synchronized');
 

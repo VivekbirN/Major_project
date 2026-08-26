@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
-import { getProducts } from '../api/inventory'
+import { getProducts } from '../api/products'
 
 const CATEGORY_COLORS = {
   Dairy: 'text-blue-400 bg-blue-900/30',

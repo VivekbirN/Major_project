@@ -1,6 +1,6 @@
 import api from './axios'
 
 export const getDashboardOverview = async () => {
-  const response = await api.get('/dashboard/overview')
-  return response.data
+  const r = await api.get('/dashboard/overview')
+  return r.data
 }

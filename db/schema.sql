@@ -113,3 +113,28 @@ CREATE TABLE IF NOT EXISTS anomaly_alerts (
     CONSTRAINT fk_alert_node    FOREIGN KEY (node_id)    REFERENCES nodes(id)    ON DELETE SET NULL,
     CONSTRAINT fk_alert_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- ── inventory_transactions (Part 2) ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id                INT AUTO_INCREMENT PRIMARY KEY,
+    inventory_id      INT          NOT NULL,
+    node_id           INT          NOT NULL,
+    product_id        INT          NOT NULL,
+    user_id           INT          NULL,
+    transaction_type  ENUM('INCOMING','OUTGOING','ADJUSTMENT','SPOILAGE','INITIAL') NOT NULL,
+    quantity_change   INT          NOT NULL,
+    quantity_before   INT          NOT NULL,
+    quantity_after    INT          NOT NULL,
+    reason            VARCHAR(500) NULL,
+    reference         VARCHAR(100) NULL,
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_txn_inventory FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE CASCADE,
+    CONSTRAINT fk_txn_node      FOREIGN KEY (node_id)      REFERENCES nodes(id)    ON DELETE RESTRICT,
+    CONSTRAINT fk_txn_product   FOREIGN KEY (product_id)   REFERENCES products(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_txn_user      FOREIGN KEY (user_id)      REFERENCES users(id)    ON DELETE SET NULL,
+    INDEX idx_txn_node      (node_id),
+    INDEX idx_txn_product   (product_id),
+    INDEX idx_txn_inventory (inventory_id),
+    INDEX idx_txn_created   (created_at)
+) ENGINE=InnoDB;
+

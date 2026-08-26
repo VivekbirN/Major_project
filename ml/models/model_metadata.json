@@ -1,0 +1,108 @@
+{
+  "version": "1.0.0",
+  "training_timestamp": "2026-08-26T17:03:59.048346",
+  "pipeline_duration_sec": 33.75,
+  "dataset": {
+    "name": "FreshRetailNet-50K",
+    "source": "Dingdong-Inc/FreshRetailNet-50K",
+    "license": "CC BY 4.0",
+    "train_records_used": 108000,
+    "eval_records_used": 8400,
+    "sampled_series_count": 1200
+  },
+  "demand_model": {
+    "selected_model": "XGBoost",
+    "features": [
+      "lag_1",
+      "lag_2",
+      "lag_3",
+      "lag_7",
+      "lag_14",
+      "rolling_mean_3",
+      "rolling_mean_7",
+      "rolling_mean_14",
+      "rolling_std_7",
+      "day_of_week",
+      "day_of_month",
+      "month",
+      "is_weekend",
+      "discount",
+      "holiday_flag",
+      "activity_flag",
+      "precpt",
+      "avg_temperature",
+      "avg_humidity",
+      "avg_wind_level",
+      "stockout_ratio",
+      "is_stockout"
+    ],
+    "target": "adjusted_demand",
+    "results": {
+      "Baseline (7-Day MA)": {
+        "mae": 0.6829,
+        "rmse": 1.2506,
+        "r2": 0.7971,
+        "smape": 52.43,
+        "mape": 110.32
+      },
+      "Random Forest": {
+        "mae": 0.5084,
+        "rmse": 0.9423,
+        "r2": 0.8848,
+        "smape": 42.97,
+        "mape": 70.04,
+        "train_time_sec": 21.47
+      },
+      "XGBoost": {
+        "mae": 0.4991,
+        "rmse": 1.0096,
+        "r2": 0.8678,
+        "smape": 42.05,
+        "mape": 61.39,
+        "train_time_sec": 1.35
+      }
+    }
+  },
+  "spoilage_model": {
+    "model_type": "XGBClassifier",
+    "features": [
+      "days_to_expiry",
+      "product_shelf_life",
+      "inventory_quantity",
+      "stock_age",
+      "temperature_exposure",
+      "historical_spoilage_rate",
+      "storage_condition"
+    ],
+    "metrics": {
+      "accuracy": 0.767,
+      "precision": 0.5899,
+      "recall": 0.4355,
+      "f1_score": 0.5011,
+      "roc_auc": 0.7775,
+      "confusion_matrix": [
+        [
+          1950,
+          244
+        ],
+        [
+          455,
+          351
+        ]
+      ]
+    }
+  },
+  "anomaly_model": {
+    "algorithm": "IsolationForest",
+    "features": [
+      "recent_sales",
+      "rolling_mean",
+      "rolling_std",
+      "sales_change",
+      "inventory_change",
+      "stockout_ratio"
+    ],
+    "anomaly_rate": 0.05,
+    "records_trained": 12000
+  }
+}

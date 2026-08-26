@@ -3,8 +3,11 @@ import ProtectedRoute from './routes/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import InventoryPage from './pages/InventoryPage'
+import InventoryDetailPage from './pages/InventoryDetailPage'
 import ProductsPage from './pages/ProductsPage'
 import NodesPage from './pages/NodesPage'
+import ForecastingPage from './pages/ForecastingPage'
+import AlertsPage from './pages/AlertsPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 const App = () => {
@@ -31,6 +34,14 @@ const App = () => {
         }
       />
       <Route
+        path="/inventory/:id"
+        element={
+          <ProtectedRoute>
+            <InventoryDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/products"
         element={
           <ProtectedRoute>
@@ -43,6 +54,22 @@ const App = () => {
         element={
           <ProtectedRoute>
             <NodesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/forecasting"
+        element={
+          <ProtectedRoute>
+            <ForecastingPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/alerts"
+        element={
+          <ProtectedRoute>
+            <AlertsPage />
           </ProtectedRoute>
         }
       />

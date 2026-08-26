@@ -32,10 +32,11 @@ const getNavItems = (role) => {
     return [
       ...common,
       { label: 'Nodes', path: '/nodes', icon: 'nodes', implemented: true },
-      { divider: true, label: 'AI Modules — Coming Soon' },
-      { label: 'Forecasting', path: '/forecasting', icon: 'forecasting', implemented: false },
+      { divider: true, label: 'AI Intelligence' },
+      { label: 'Forecasting', path: '/forecasting', icon: 'forecasting', implemented: true },
+      { label: 'AI Alerts & Risk', path: '/alerts', icon: 'alerts', implemented: true },
+      { divider: true, label: 'Part 4 — Redistribution' },
       { label: 'Redistribution', path: '/redistribution', icon: 'redistribution', implemented: false },
-      { label: 'Alerts', path: '/alerts', icon: 'alerts', implemented: false },
       { label: 'Waste Analytics', path: '/waste', icon: 'waste', implemented: false },
     ]
   }
@@ -44,11 +45,19 @@ const getNavItems = (role) => {
     return [
       ...common,
       { label: 'My Node', path: '/nodes', icon: 'mynode', implemented: true },
+      { divider: true, label: 'AI Intelligence' },
+      { label: 'Forecasting', path: '/forecasting', icon: 'forecasting', implemented: true },
+      { label: 'AI Alerts & Risk', path: '/alerts', icon: 'alerts', implemented: true },
     ]
   }
 
   // VIEWER
-  return common
+  return [
+    ...common,
+    { divider: true, label: 'AI Intelligence' },
+    { label: 'Forecasting', path: '/forecasting', icon: 'forecasting', implemented: true },
+    { label: 'AI Alerts & Risk', path: '/alerts', icon: 'alerts', implemented: true },
+  ]
 }
 
 const Sidebar = () => {
