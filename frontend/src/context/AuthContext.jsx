@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { loginUser, getMe } from '../api/auth'
+import { loginUser, registerUser, googleLogin, getMe } from '../api/auth'
 
 const AuthContext = createContext(null)
 
@@ -37,19 +37,57 @@ export const AuthProvider = ({ children }) => {
     initAuth()
   }, [])
 
+  const _persist = (newToken, newUser) => {
+    localStorage.setItem(TOKEN_KEY, newToken)
+    localStorage.setItem(USER_KEY, JSON.stringify(newUser))
+    setToken(newToken)
+    setUser(newUser)
+  }
+
   const login = useCallback(async (email, password) => {
     setError(null)
     setLoading(true)
     try {
       const data = await loginUser(email, password)
       const { token: newToken, user: newUser } = data.data
-      localStorage.setItem(TOKEN_KEY, newToken)
-      localStorage.setItem(USER_KEY, JSON.stringify(newUser))
-      setToken(newToken)
-      setUser(newUser)
+      _persist(newToken, newUser)
       return { success: true }
     } catch (err) {
       const message = err.response?.data?.message || 'Login failed. Please try again.'
+      setError(message)
+      return { success: false, message }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const register = useCallback(async (name, email, password, role = 'VIEWER') => {
+    setError(null)
+    setLoading(true)
+    try {
+      const data = await registerUser(name, email, password, role)
+      const { token: newToken, user: newUser } = data.data
+      _persist(newToken, newUser)
+      return { success: true }
+    } catch (err) {
+      const message = err.response?.data?.message || 'Registration failed. Please try again.'
+      setError(message)
+      return { success: false, message }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const loginWithGoogle = useCallback(async (idToken) => {
+    setError(null)
+    setLoading(true)
+    try {
+      const data = await googleLogin(idToken)
+      const { token: newToken, user: newUser } = data.data
+      _persist(newToken, newUser)
+      return { success: true }
+    } catch (err) {
+      const message = err.response?.data?.message || 'Google sign-in failed. Please try again.'
       setError(message)
       return { success: false, message }
     } finally {
@@ -74,6 +112,8 @@ export const AuthProvider = ({ children }) => {
     error,
     isAuthenticated: !!user && !!token,
     login,
+    register,
+    loginWithGoogle,
     logout,
     clearError,
   }

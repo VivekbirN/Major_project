@@ -19,7 +19,16 @@ const User = sequelize.define('User', {
   },
   password_hash: {
     type: DataTypes.STRING(255),
-    allowNull: false,
+    allowNull: true, // null for OAuth users (e.g. Google sign-in)
+  },
+  google_id: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    unique: true,
+  },
+  avatar_url: {
+    type: DataTypes.STRING(500),
+    allowNull: true,
   },
   role: {
     type: DataTypes.ENUM('SUPPLY_CHAIN_MANAGER', 'WAREHOUSE_ADMIN', 'VIEWER'),
