@@ -55,5 +55,10 @@ ml/models/*.h5
 coverage/
 .nyc_output/
 
-# Sequelize
+# SQLite
 *.sqlite
+
+# Large ML datasets — never commit these to Git
+*.parquet
+*.csv
+ml/data/
