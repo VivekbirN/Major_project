@@ -7,20 +7,21 @@ const { sendError } = require('../utils/responseHelper');
 const errorHandler = (err, req, res, next) => {
   console.error('Unhandled error:', err);
 
-  // Sequelize validation errors
-  if (err.name === 'SequelizeValidationError') {
-    const messages = err.errors.map((e) => e.message);
+  // Mongoose validation errors
+  if (err.name === 'ValidationError') {
+    const messages = Object.values(err.errors).map((e) => e.message);
     return sendError(res, messages.join(', '), 400);
   }
 
-  // Sequelize unique constraint
-  if (err.name === 'SequelizeUniqueConstraintError') {
-    return sendError(res, 'A record with that value already exists', 409);
+  // Mongoose duplicate key (unique constraint)
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyValue || {})[0] || 'field';
+    return sendError(res, `A record with that ${field} already exists`, 409);
   }
 
-  // Sequelize foreign key constraint
-  if (err.name === 'SequelizeForeignKeyConstraintError') {
-    return sendError(res, 'Referenced record does not exist', 400);
+  // Mongoose CastError (invalid ObjectId)
+  if (err.name === 'CastError') {
+    return sendError(res, `Invalid ${err.path}: ${err.value}`, 400);
   }
 
   // JWT errors

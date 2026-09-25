@@ -1,40 +1,42 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const Product = sequelize.define('Product', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
+const productSchema = new mongoose.Schema(
+  {
+    sku: {
+      type: String,
+      required: true,
+      unique: true,
+      maxlength: 50,
+    },
+    name: {
+      type: String,
+      required: true,
+      maxlength: 200,
+    },
+    category: {
+      type: String,
+      required: true,
+    },
+    shelf_life_days: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    unit_cost: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
-  sku: {
-    type: DataTypes.STRING(50),
-    allowNull: false,
-    unique: true,
-  },
-  name: {
-    type: DataTypes.STRING(200),
-    allowNull: false,
-  },
-  category: {
-    type: DataTypes.STRING(100),
-    allowNull: false,
-  },
-  shelf_life_days: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 0,
-  },
-  unit_cost: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
-    defaultValue: 0.00,
-  },
-}, {
-  tableName: 'products',
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
+  {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+  }
+);
+
+productSchema.virtual('id').get(function () {
+  return this._id.toHexString();
 });
+productSchema.set('toJSON', { virtuals: true });
+productSchema.set('toObject', { virtuals: true });
 
-module.exports = Product;
+module.exports = mongoose.model('Product', productSchema);

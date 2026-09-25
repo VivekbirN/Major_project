@@ -1,47 +1,49 @@
-const { sequelize, Node, Product, Inventory, SpoilageEvent, InventoryTransaction } = require('../models');
+const mongoose = require('mongoose');
+const { Node, Product, Inventory, SpoilageEvent, InventoryTransaction } = require('../models');
 const { sendSuccess, sendError } = require('../utils/responseHelper');
+
+const isValidId = (id) => mongoose.isValidObjectId(id);
 
 /**
  * POST /api/v1/spoilage
- * Record spoilage — reduces inventory, creates spoilage_event, transaction-safe
  */
 const recordSpoilage = async (req, res) => {
-  const t = await sequelize.transaction();
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    const { role, node_id: userNodeId, id: userId } = req.user;
+    const { role, node_id: userNodeId, _id: userId } = req.user;
     const { node_id, product_id, quantity, reason, event_date } = req.body;
 
-    // Validate required fields
     if (!node_id || !product_id || !quantity || !reason) {
-      await t.rollback();
+      await session.abortTransaction();
       return sendError(res, 'node_id, product_id, quantity, and reason are required', 400);
     }
     if (parseInt(quantity) <= 0) {
-      await t.rollback();
+      await session.abortTransaction();
       return sendError(res, 'Quantity must be greater than zero', 400);
     }
+    if (!isValidId(node_id) || !isValidId(product_id)) {
+      await session.abortTransaction();
+      return sendError(res, 'Invalid node_id or product_id', 400);
+    }
 
-    const targetNode = parseInt(node_id);
+    const targetNode = new mongoose.Types.ObjectId(node_id);
 
-    // RBAC
-    if (role === 'WAREHOUSE_ADMIN' && userNodeId !== targetNode) {
-      await t.rollback();
+    if (role === 'WAREHOUSE_ADMIN' && userNodeId.toString() !== targetNode.toString()) {
+      await session.abortTransaction();
       return sendError(res, 'Access denied — you can only record spoilage for your node', 403);
     }
     if (role === 'VIEWER') {
-      await t.rollback();
+      await session.abortTransaction();
       return sendError(res, 'Access denied — viewers cannot record spoilage', 403);
     }
 
-    // Find inventory record
-    const inv = await Inventory.findOne({
-      where: { node_id: targetNode, product_id: parseInt(product_id) },
-      include: [{ model: Product, as: 'product', attributes: ['id', 'name', 'sku', 'unit_cost'] }],
-      transaction: t,
-    });
+    const inv = await Inventory.findOne({ node_id: targetNode, product_id })
+      .populate('product_id', 'id name sku unit_cost')
+      .session(session);
 
     if (!inv) {
-      await t.rollback();
+      await session.abortTransaction();
       return sendError(res, 'No inventory found for this product at this node', 404);
     }
 
@@ -49,41 +51,40 @@ const recordSpoilage = async (req, res) => {
     const spoilQty = parseInt(quantity);
 
     if (spoilQty > qtyBefore) {
-      await t.rollback();
+      await session.abortTransaction();
       return sendError(res, `Spoilage quantity (${spoilQty}) exceeds current stock (${qtyBefore})`, 400);
     }
 
     const qtyAfter = qtyBefore - spoilQty;
-    const unitCost = parseFloat(inv.product?.unit_cost || 0);
+    const unitCost = inv.product_id?.unit_cost || 0;
     const estimatedLoss = spoilQty * unitCost;
 
-    // Reduce inventory
-    await inv.update({ quantity: qtyAfter, last_updated: new Date() }, { transaction: t });
+    inv.quantity = qtyAfter;
+    inv.last_updated = new Date();
+    await inv.save({ session });
 
-    // Create spoilage event
-    const spoilageEvent = await SpoilageEvent.create({
+    const [spoilageEvent] = await SpoilageEvent.create([{
       node_id: targetNode,
-      product_id: parseInt(product_id),
+      product_id,
       quantity: spoilQty,
       reason,
       estimated_loss: estimatedLoss,
-      event_date: event_date || new Date().toISOString().split('T')[0],
-    }, { transaction: t });
+      event_date: event_date ? new Date(event_date) : new Date(),
+    }], { session });
 
-    // Record inventory transaction
-    await InventoryTransaction.create({
-      inventory_id: inv.id,
+    await InventoryTransaction.create([{
+      inventory_id: inv._id,
       node_id: targetNode,
-      product_id: parseInt(product_id),
+      product_id,
       user_id: userId,
       transaction_type: 'SPOILAGE',
       quantity_change: -spoilQty,
       quantity_before: qtyBefore,
       quantity_after: qtyAfter,
       reason: `Spoilage: ${reason}`,
-    }, { transaction: t });
+    }], { session });
 
-    await t.commit();
+    await session.commitTransaction();
 
     return sendSuccess(res, {
       spoilage_event: spoilageEvent,
@@ -92,15 +93,16 @@ const recordSpoilage = async (req, res) => {
       estimated_loss: estimatedLoss,
     }, 'Spoilage recorded successfully', 201);
   } catch (error) {
-    await t.rollback();
+    await session.abortTransaction();
     console.error('Record spoilage error:', error);
     return sendError(res, 'Failed to record spoilage', 500);
+  } finally {
+    session.endSession();
   }
 };
 
 /**
  * GET /api/v1/spoilage
- * List spoilage events — scoped by role
  */
 const getSpoilageEvents = async (req, res) => {
   try {
@@ -110,16 +112,15 @@ const getSpoilageEvents = async (req, res) => {
     const where = role !== 'SUPPLY_CHAIN_MANAGER' ? { node_id } : {};
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const { count, rows } = await SpoilageEvent.findAndCountAll({
-      where,
-      include: [
-        { model: Node, as: 'node', attributes: ['id', 'name', 'type'] },
-        { model: Product, as: 'product', attributes: ['id', 'sku', 'name', 'category'] },
-      ],
-      order: [['event_date', 'DESC']],
-      limit: parseInt(limit),
-      offset,
-    });
+    const [count, rows] = await Promise.all([
+      SpoilageEvent.countDocuments(where),
+      SpoilageEvent.find(where)
+        .populate('node_id', 'id name type')
+        .populate('product_id', 'id sku name category')
+        .sort({ event_date: -1 })
+        .skip(offset)
+        .limit(parseInt(limit)),
+    ]);
 
     return sendSuccess(res, {
       spoilage_events: rows,

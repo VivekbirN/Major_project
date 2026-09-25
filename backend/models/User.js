@@ -1,53 +1,54 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const User = sequelize.define('User', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  name: {
-    type: DataTypes.STRING(150),
-    allowNull: false,
-  },
-  email: {
-    type: DataTypes.STRING(255),
-    allowNull: false,
-    unique: true,
-    validate: { isEmail: true },
-  },
-  password_hash: {
-    type: DataTypes.STRING(255),
-    allowNull: true, // null for OAuth users (e.g. Google sign-in)
-  },
-  google_id: {
-    type: DataTypes.STRING(255),
-    allowNull: true,
-    unique: true,
-  },
-  avatar_url: {
-    type: DataTypes.STRING(500),
-    allowNull: true,
-  },
-  role: {
-    type: DataTypes.ENUM('SUPPLY_CHAIN_MANAGER', 'WAREHOUSE_ADMIN', 'VIEWER'),
-    allowNull: false,
-    defaultValue: 'VIEWER',
-  },
-  node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'nodes',
-      key: 'id',
+const userSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      maxlength: 150,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+    password_hash: {
+      type: String,
+      default: null,
+    },
+    google_id: {
+      type: String,
+      default: null,
+      sparse: true,
+    },
+    avatar_url: {
+      type: String,
+      default: null,
+    },
+    role: {
+      type: String,
+      enum: ['SUPPLY_CHAIN_MANAGER', 'WAREHOUSE_ADMIN', 'VIEWER'],
+      default: 'VIEWER',
+    },
+    node_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Node',
+      default: null,
     },
   },
-}, {
-  tableName: 'users',
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
+  {
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+  }
+);
+
+// Virtual "id" field so code using user.id keeps working
+userSchema.virtual('id').get(function () {
+  return this._id.toHexString();
 });
 
-module.exports = User;
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
+
+module.exports = mongoose.model('User', userSchema);

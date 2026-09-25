@@ -1,10 +1,12 @@
 const http = require('http');
-const { Op } = require('sequelize');
+const mongoose = require('mongoose');
 const { Node, Product, Inventory, SalesRecord, AnomalyAlert } = require('../models');
 const { sendSuccess, sendError } = require('../utils/responseHelper');
 
 const FASTAPI_HOST = process.env.FASTAPI_HOST || 'localhost';
 const FASTAPI_PORT = parseInt(process.env.FASTAPI_PORT) || 8000;
+
+const isValidId = (id) => mongoose.isValidObjectId(id);
 
 /**
  * Helper to make HTTP requests to the FastAPI ML service
@@ -50,16 +52,13 @@ function callFastAPI(path, method = 'POST', payload = null) {
       reject(new Error('ML service request timed out'));
     });
 
-    if (dataString) {
-      req.write(dataString);
-    }
+    if (dataString) req.write(dataString);
     req.end();
   });
 }
 
 /**
  * GET /api/v1/ml/health
- * Check status of FastAPI inference service
  */
 const getMLHealth = async (req, res) => {
   try {
@@ -72,7 +71,6 @@ const getMLHealth = async (req, res) => {
 
 /**
  * POST /api/v1/ml/demand
- * Predict next-day demand using XGBoost / Random Forest on FreshRetailNet-50K
  */
 const getDemandForecast = async (req, res) => {
   try {
@@ -92,47 +90,40 @@ const getDemandForecast = async (req, res) => {
     if (!node_id || !product_id) {
       return sendError(res, 'node_id and product_id are required', 400);
     }
+    if (!isValidId(node_id) || !isValidId(product_id)) {
+      return sendError(res, 'Invalid node_id or product_id', 400);
+    }
 
-    const targetNodeId = parseInt(node_id);
-    const targetProductId = parseInt(product_id);
-
-    // RBAC: Warehouse Admin restricted to assigned node
-    if (role === 'WAREHOUSE_ADMIN' && userNodeId !== targetNodeId) {
+    if (role === 'WAREHOUSE_ADMIN' && userNodeId.toString() !== node_id.toString()) {
       return sendError(res, 'Access denied — you can only request forecasts for your assigned node', 403);
     }
 
-    // Verify node and product exist
     const [node, product] = await Promise.all([
-      Node.findByPk(targetNodeId, { attributes: ['id', 'name', 'type', 'location'] }),
-      Product.findByPk(targetProductId, { attributes: ['id', 'sku', 'name', 'category', 'unit_cost'] }),
+      Node.findById(node_id).select('id name type location'),
+      Product.findById(product_id).select('id sku name category unit_cost'),
     ]);
 
     if (!node) return sendError(res, 'Node not found', 404);
     if (!product) return sendError(res, 'Product not found', 404);
 
-    // Resolve historical sales
     let salesSeries = historical_sales;
     if (!salesSeries || !salesSeries.length) {
-      const records = await SalesRecord.findAll({
-        where: { node_id: targetNodeId, product_id: targetProductId },
-        order: [['sale_date', 'ASC']],
-        limit: 30,
-      });
+      const records = await SalesRecord.find({ node_id, product_id })
+        .sort({ sale_date: 1 })
+        .limit(30);
 
       if (records.length > 0) {
-        salesSeries = records.map((r) => r.quantity_sold);
+        salesSeries = records.map(r => r.quantity_sold);
       } else {
-        // Synthesize baseline from inventory threshold
-        const inv = await Inventory.findOne({ where: { node_id: targetNodeId, product_id: targetProductId } });
+        const inv = await Inventory.findOne({ node_id, product_id });
         const base = inv ? Math.max(Math.round(inv.reorder_threshold * 0.4), 10) : 25;
         salesSeries = Array.from({ length: 14 }, () => base + Math.floor(Math.random() * 8 - 4));
       }
     }
 
-    // Call FastAPI ML service
     const mlPayload = {
-      node_id: targetNodeId,
-      product_id: targetProductId,
+      node_id,
+      product_id,
       historical_sales: salesSeries,
       discount: parseFloat(discount),
       holiday_flag: parseInt(holiday_flag),
@@ -144,17 +135,13 @@ const getDemandForecast = async (req, res) => {
 
     const mlResult = await callFastAPI('/predict/demand', 'POST', mlPayload);
 
-    return sendSuccess(
-      res,
-      {
-        node,
-        product,
-        historical_sales: salesSeries,
-        forecast: mlResult.prediction,
-        model_info: mlResult.model,
-      },
-      'Demand forecast calculated successfully'
-    );
+    return sendSuccess(res, {
+      node,
+      product,
+      historical_sales: salesSeries,
+      forecast: mlResult.prediction,
+      model_info: mlResult.model,
+    }, 'Demand forecast calculated successfully');
   } catch (error) {
     console.error('Demand forecast error:', error);
     return sendError(res, error.message || 'Failed to generate demand forecast', 500);
@@ -163,7 +150,6 @@ const getDemandForecast = async (req, res) => {
 
 /**
  * POST /api/v1/ml/spoilage
- * Predict spoilage risk score for inventory item
  */
 const getSpoilagePrediction = async (req, res) => {
   try {
@@ -186,15 +172,13 @@ const getSpoilagePrediction = async (req, res) => {
     let invRecord = null;
 
     if (inventory_id) {
-      invRecord = await Inventory.findByPk(inventory_id, {
-        include: [
-          { model: Product, as: 'product' },
-          { model: Node, as: 'node' },
-        ],
-      });
+      if (!isValidId(inventory_id)) return sendError(res, 'Invalid inventory_id', 400);
+      invRecord = await Inventory.findById(inventory_id)
+        .populate('product_id')
+        .populate('node_id');
       if (!invRecord) return sendError(res, 'Inventory record not found', 404);
 
-      if (role === 'WAREHOUSE_ADMIN' && userNodeId !== invRecord.node_id) {
+      if (role === 'WAREHOUSE_ADMIN' && userNodeId.toString() !== invRecord.node_id._id.toString()) {
         return sendError(res, 'Access denied — not your node', 403);
       }
 
@@ -202,16 +186,16 @@ const getSpoilagePrediction = async (req, res) => {
         const diff = Math.ceil((new Date(invRecord.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
         targetDays = Math.max(diff, 0);
       }
-      targetShelfLife = targetShelfLife || invRecord.product?.shelf_life_days || 14;
+      targetShelfLife = targetShelfLife || invRecord.product_id?.shelf_life_days || 14;
       targetQty = targetQty !== undefined ? targetQty : invRecord.quantity;
     } else if (node_id && product_id) {
-      const targetNode = parseInt(node_id);
-      if (role === 'WAREHOUSE_ADMIN' && userNodeId !== targetNode) {
+      if (!isValidId(node_id) || !isValidId(product_id)) return sendError(res, 'Invalid node_id or product_id', 400);
+      if (role === 'WAREHOUSE_ADMIN' && userNodeId.toString() !== node_id.toString()) {
         return sendError(res, 'Access denied — not your node', 403);
       }
       const [p, inv] = await Promise.all([
-        Product.findByPk(parseInt(product_id)),
-        Inventory.findOne({ where: { node_id: targetNode, product_id: parseInt(product_id) } }),
+        Product.findById(product_id),
+        Inventory.findOne({ node_id, product_id }),
       ]);
       targetShelfLife = targetShelfLife || p?.shelf_life_days || 14;
       targetQty = targetQty !== undefined ? targetQty : inv?.quantity || 50;
@@ -235,16 +219,12 @@ const getSpoilagePrediction = async (req, res) => {
 
     const mlResult = await callFastAPI('/predict/spoilage', 'POST', mlPayload);
 
-    return sendSuccess(
-      res,
-      {
-        inventory: invRecord,
-        inputs: mlPayload,
-        prediction: mlResult.prediction,
-        model_info: mlResult.model,
-      },
-      'Spoilage risk analyzed successfully'
-    );
+    return sendSuccess(res, {
+      inventory: invRecord,
+      inputs: mlPayload,
+      prediction: mlResult.prediction,
+      model_info: mlResult.model,
+    }, 'Spoilage risk analyzed successfully');
   } catch (error) {
     console.error('Spoilage prediction error:', error);
     return sendError(res, error.message || 'Failed to predict spoilage risk', 500);
@@ -253,7 +233,6 @@ const getSpoilagePrediction = async (req, res) => {
 
 /**
  * POST /api/v1/ml/anomaly
- * Detect operational irregularities using Isolation Forest
  */
 const detectAnomaly = async (req, res) => {
   try {
@@ -273,18 +252,15 @@ const detectAnomaly = async (req, res) => {
     let targetMean = rolling_mean;
     let targetStd = rolling_std;
 
-    // Optional auto-fetch from database
     if (node_id && product_id && (targetSales === undefined || targetMean === undefined)) {
-      const targetNode = parseInt(node_id);
-      if (role === 'WAREHOUSE_ADMIN' && userNodeId !== targetNode) {
+      if (!isValidId(node_id) || !isValidId(product_id)) return sendError(res, 'Invalid node_id or product_id', 400);
+      if (role === 'WAREHOUSE_ADMIN' && userNodeId.toString() !== node_id.toString()) {
         return sendError(res, 'Access denied — not your node', 403);
       }
 
-      const sales = await SalesRecord.findAll({
-        where: { node_id: targetNode, product_id: parseInt(product_id) },
-        order: [['sale_date', 'DESC']],
-        limit: 14,
-      });
+      const sales = await SalesRecord.find({ node_id, product_id })
+        .sort({ sale_date: -1 })
+        .limit(14);
 
       if (sales.length > 0) {
         targetSales = sales[0].quantity_sold;
@@ -315,32 +291,28 @@ const detectAnomaly = async (req, res) => {
 
     const mlResult = await callFastAPI('/detect/anomaly', 'POST', mlPayload);
 
-    // If an anomaly is detected and persist_alert is requested, save to database
     let alertRecord = null;
-    if (mlResult.anomaly.is_anomaly && persist_alert && node_id) {
+    if (mlResult.anomaly.is_anomaly && persist_alert && node_id && isValidId(node_id)) {
       alertRecord = await AnomalyAlert.create({
-        node_id: parseInt(node_id),
-        product_id: product_id ? parseInt(product_id) : null,
-        alert_type: mlResult.anomaly.anomaly_type === 'DEMAND_SPIKE' ? 'DEMAND_SPIKE' :
-                    mlResult.anomaly.anomaly_type === 'DEMAND_DROP' ? 'DEMAND_DROP' :
-                    mlResult.anomaly.anomaly_type === 'EXPIRY_OR_STOCKOUT_RISK' ? 'EXPIRY_RISK' : 'SUPPLY_INCONSISTENCY',
-        severity: mlResult.anomaly.severity === 'CRITICAL' ? 'CRITICAL' :
-                  mlResult.anomaly.severity === 'HIGH' ? 'HIGH' : 'MEDIUM',
+        node_id,
+        product_id: (product_id && isValidId(product_id)) ? product_id : null,
+        alert_type: mlResult.anomaly.anomaly_type === 'DEMAND_SPIKE'  ? 'DEMAND_SPIKE'
+                  : mlResult.anomaly.anomaly_type === 'DEMAND_DROP'   ? 'DEMAND_DROP'
+                  : mlResult.anomaly.anomaly_type === 'EXPIRY_OR_STOCKOUT_RISK' ? 'EXPIRY_RISK'
+                  : 'SUPPLY_INCONSISTENCY',
+        severity: mlResult.anomaly.severity === 'CRITICAL' ? 'CRITICAL'
+                : mlResult.anomaly.severity === 'HIGH'     ? 'HIGH' : 'MEDIUM',
         message: `[AI Isolation Forest] ${mlResult.anomaly.message} (Score: ${mlResult.anomaly.score})`,
         status: 'ACTIVE',
       });
     }
 
-    return sendSuccess(
-      res,
-      {
-        inputs: mlPayload,
-        anomaly: mlResult.anomaly,
-        model_info: mlResult.model,
-        persisted_alert: alertRecord,
-      },
-      'Anomaly detection analysis completed'
-    );
+    return sendSuccess(res, {
+      inputs: mlPayload,
+      anomaly: mlResult.anomaly,
+      model_info: mlResult.model,
+      persisted_alert: alertRecord,
+    }, 'Anomaly detection analysis completed');
   } catch (error) {
     console.error('Anomaly detection error:', error);
     return sendError(res, error.message || 'Failed to analyze anomaly', 500);

@@ -1,13 +1,14 @@
-const { Op, fn, col, literal } = require('sequelize');
+const mongoose = require('mongoose');
 const { Node, Product, Inventory } = require('../models');
 const { sendSuccess, sendError } = require('../utils/responseHelper');
 
 const NEAR_EXPIRY_DAYS = 7;
 const OVERSTOCK_MULTIPLIER = 5;
 
+const isValidId = (id) => mongoose.isValidObjectId(id);
+
 /**
  * GET /api/v1/products
- * Full product list with total stock across nodes
  */
 const getProducts = async (req, res) => {
   try {
@@ -18,61 +19,60 @@ const getProducts = async (req, res) => {
     const where = {};
     if (category) where.category = category;
     if (search) {
-      where[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { sku: { [Op.like]: `%${search}%` } },
+      where.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { sku: { $regex: search, $options: 'i' } },
       ];
     }
 
+    const sortDir = order === 'ASC' ? 1 : -1;
     const SORT_MAP = {
-      name: [['name', order]],
-      sku: [['sku', order]],
-      unit_cost: [['unit_cost', order]],
-      shelf_life_days: [['shelf_life_days', order]],
-      category: [['category', order]],
+      name: { name: sortDir },
+      sku: { sku: sortDir },
+      unit_cost: { unit_cost: sortDir },
+      shelf_life_days: { shelf_life_days: sortDir },
+      category: { category: sortDir },
     };
-    const orderClause = SORT_MAP[sort] || [['name', 'ASC']];
+    const sortClause = SORT_MAP[sort] || { name: 1 };
 
-    const { count, rows } = await Product.findAndCountAll({
-      where,
-      limit: parseInt(limit),
-      offset,
-      order: orderClause,
-    });
+    const [count, rows] = await Promise.all([
+      Product.countDocuments(where),
+      Product.find(where).sort(sortClause).skip(offset).limit(parseInt(limit)),
+    ]);
 
-    // For each product, get aggregate inventory stats (scoped by role)
-    const productIds = rows.map(p => p.id);
+    // Aggregate inventory stats per product
+    const productIds = rows.map(p => p._id);
     const inventoryScope = role !== 'SUPPLY_CHAIN_MANAGER' ? { node_id } : {};
 
-    const invStats = await Inventory.findAll({
-      where: { product_id: { [Op.in]: productIds }, ...inventoryScope },
-      attributes: [
-        'product_id',
-        [fn('SUM', col('quantity')), 'total_stock'],
-        [fn('COUNT', col('id')), 'node_count'],
-      ],
-      group: ['product_id'],
-      raw: true,
-    });
+    const invStats = await Inventory.aggregate([
+      { $match: { product_id: { $in: productIds }, ...inventoryScope } },
+      {
+        $group: {
+          _id: '$product_id',
+          total_stock: { $sum: '$quantity' },
+          node_count: { $sum: 1 },
+        },
+      },
+    ]);
 
     const invMap = {};
-    invStats.forEach(s => { invMap[s.product_id] = s; });
+    invStats.forEach(s => { invMap[s._id.toString()] = s; });
 
     const enriched = rows.map(product => {
       const plain = product.toJSON();
-      const stats = invMap[plain.id] || {};
-      plain.total_stock = parseInt(stats.total_stock) || 0;
-      plain.node_count = parseInt(stats.node_count) || 0;
-      plain.total_value = plain.total_stock * parseFloat(plain.unit_cost);
+      const stats = invMap[plain._id.toString()] || {};
+      plain.total_stock = stats.total_stock || 0;
+      plain.node_count = stats.node_count || 0;
+      plain.total_value = plain.total_stock * (plain.unit_cost || 0);
       return plain;
     });
 
-    // Get distinct categories for filter
-    const categories = await Product.findAll({ attributes: [[fn('DISTINCT', col('category')), 'category']], raw: true });
+    // Distinct categories
+    const categories = await Product.distinct('category');
 
     return sendSuccess(res, {
       products: enriched,
-      categories: categories.map(c => c.category).filter(Boolean).sort(),
+      categories: categories.filter(Boolean).sort(),
       pagination: {
         total: count,
         page: parseInt(page),
@@ -88,37 +88,43 @@ const getProducts = async (req, res) => {
 
 /**
  * GET /api/v1/products/:id
- * Product details with node-by-node inventory breakdown
  */
 const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
     const { role, node_id } = req.user;
 
-    const product = await Product.findByPk(id, { raw: true });
+    if (!isValidId(id)) return sendError(res, 'Invalid product ID', 400);
+
+    const product = await Product.findById(id).lean();
     if (!product) return sendError(res, 'Product not found', 404);
 
     const inventoryScope = role !== 'SUPPLY_CHAIN_MANAGER' ? { node_id } : {};
+    const now = new Date();
+    const nearExpiry = new Date();
+    nearExpiry.setDate(now.getDate() + NEAR_EXPIRY_DAYS);
 
-    const today = new Date().toISOString().split('T')[0];
-    const nearExpiry = new Date(); nearExpiry.setDate(new Date().getDate() + NEAR_EXPIRY_DAYS);
-    const nearExpiryStr = nearExpiry.toISOString().split('T')[0];
-
-    const inventory = await Inventory.findAll({
-      where: { product_id: parseInt(id), ...inventoryScope },
-      include: [{ model: Node, as: 'node', attributes: ['id', 'name', 'type', 'location', 'capacity'] }],
-      order: [['quantity', 'DESC']],
-    });
+    const inventory = await Inventory.find({ product_id: id, ...inventoryScope })
+      .populate('node_id', 'id name type location capacity')
+      .sort({ quantity: -1 });
 
     const inventoryPlain = inventory.map(item => {
       const plain = item.toJSON();
-      const days = item.expiry_date ? Math.ceil((new Date(item.expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) : null;
+      plain.node = plain.node_id;
+      const days = item.expiry_date
+        ? Math.ceil((new Date(item.expiry_date) - new Date()) / (1000 * 60 * 60 * 24))
+        : null;
       let status = 'HEALTHY';
       if (item.quantity <= 0) status = 'CRITICAL';
       else if (days !== null && days <= NEAR_EXPIRY_DAYS) status = 'NEAR_EXPIRY';
       else if (item.quantity <= item.reorder_threshold) status = 'LOW_STOCK';
       else if (item.quantity > item.reorder_threshold * OVERSTOCK_MULTIPLIER) status = 'OVERSTOCKED';
-      return { ...plain, stock_status: status, days_until_expiry: days, inventory_value: item.quantity * parseFloat(product.unit_cost) };
+      return {
+        ...plain,
+        stock_status: status,
+        days_until_expiry: days,
+        inventory_value: item.quantity * (product.unit_cost || 0),
+      };
     });
 
     const summary = {
@@ -131,7 +137,7 @@ const getProductById = async (req, res) => {
     };
 
     return sendSuccess(res, {
-      product,
+      product: { ...product, id: product._id.toString() },
       inventory: inventoryPlain,
       summary,
     }, 'Product details retrieved');

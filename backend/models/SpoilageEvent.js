@@ -1,42 +1,40 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const SpoilageEvent = sequelize.define('SpoilageEvent', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
+const spoilageEventSchema = new mongoose.Schema({
   node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'nodes', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Node',
+    required: true,
   },
   product_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'products', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true,
   },
   quantity: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
+    type: Number,
+    required: true,
   },
   reason: {
-    type: DataTypes.ENUM('EXPIRED', 'DAMAGED', 'CONTAMINATED', 'QUALITY_FAILURE', 'OTHER'),
-    allowNull: false,
-    defaultValue: 'EXPIRED',
+    type: String,
+    enum: ['EXPIRED', 'DAMAGED', 'CONTAMINATED', 'QUALITY_FAILURE', 'OTHER'],
+    required: true,
+    default: 'EXPIRED',
   },
   estimated_loss: {
-    type: DataTypes.DECIMAL(12, 2),
-    allowNull: true,
+    type: Number,
+    default: null,
   },
   event_date: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
+    type: Date,
+    required: true,
   },
-}, {
-  tableName: 'spoilage_events',
-  timestamps: false,
 });
 
-module.exports = SpoilageEvent;
+spoilageEventSchema.virtual('id').get(function () {
+  return this._id.toHexString();
+});
+spoilageEventSchema.set('toJSON', { virtuals: true });
+spoilageEventSchema.set('toObject', { virtuals: true });
+
+module.exports = mongoose.model('SpoilageEvent', spoilageEventSchema);

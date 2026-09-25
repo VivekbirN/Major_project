@@ -34,11 +34,11 @@ const restrictToOwnNode = (req, res, next) => {
     return next(); // Full access
   }
 
-  const requestedNodeId = parseInt(
-    req.params.nodeId || req.query.node_id || node_id
-  );
+  // Compare as strings (MongoDB ObjectIds)
+  const requestedNodeId = (req.params.nodeId || req.query.node_id || '').toString();
+  const userNodeId = (node_id || '').toString();
 
-  if (role === 'WAREHOUSE_ADMIN' && node_id !== requestedNodeId) {
+  if (role === 'WAREHOUSE_ADMIN' && requestedNodeId && userNodeId !== requestedNodeId) {
     return sendError(res, 'Access denied — you can only access your assigned node', 403);
   }
 

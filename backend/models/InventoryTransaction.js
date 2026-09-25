@@ -1,69 +1,69 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-/**
- * Tracks every inventory-changing operation for audit history.
- * Used by incoming/outgoing shipments, adjustments, and spoilage recording.
- */
-const InventoryTransaction = sequelize.define('InventoryTransaction', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
+const inventoryTransactionSchema = new mongoose.Schema({
   inventory_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'inventory', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Inventory',
+    required: true,
   },
   node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'nodes', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Node',
+    required: true,
   },
   product_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'products', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true,
   },
   user_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: { model: 'users', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
   },
   transaction_type: {
-    type: DataTypes.ENUM('INCOMING', 'OUTGOING', 'ADJUSTMENT', 'SPOILAGE', 'INITIAL'),
-    allowNull: false,
+    type: String,
+    enum: ['INCOMING', 'OUTGOING', 'ADJUSTMENT', 'SPOILAGE', 'INITIAL'],
+    required: true,
   },
+  // Positive = added, Negative = removed
   quantity_change: {
-    // Positive = added, Negative = removed
-    type: DataTypes.INTEGER,
-    allowNull: false,
+    type: Number,
+    required: true,
   },
   quantity_before: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
+    type: Number,
+    required: true,
   },
   quantity_after: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
+    type: Number,
+    required: true,
   },
   reason: {
-    type: DataTypes.STRING(500),
-    allowNull: true,
+    type: String,
+    maxlength: 500,
+    default: null,
   },
   reference: {
-    type: DataTypes.STRING(100),
-    allowNull: true,
+    type: String,
+    maxlength: 100,
+    default: null,
   },
   created_at: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW,
+    type: Date,
+    default: Date.now,
   },
-}, {
-  tableName: 'inventory_transactions',
-  timestamps: false,
 });
 
-module.exports = InventoryTransaction;
+inventoryTransactionSchema.index({ node_id: 1 });
+inventoryTransactionSchema.index({ product_id: 1 });
+inventoryTransactionSchema.index({ inventory_id: 1 });
+inventoryTransactionSchema.index({ created_at: -1 });
+
+inventoryTransactionSchema.virtual('id').get(function () {
+  return this._id.toHexString();
+});
+inventoryTransactionSchema.set('toJSON', { virtuals: true });
+inventoryTransactionSchema.set('toObject', { virtuals: true });
+
+module.exports = mongoose.model('InventoryTransaction', inventoryTransactionSchema);

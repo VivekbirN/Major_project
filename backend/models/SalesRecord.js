@@ -1,42 +1,43 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const SalesRecord = sequelize.define('SalesRecord', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
+const salesRecordSchema = new mongoose.Schema({
   node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'nodes', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Node',
+    required: true,
   },
   product_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'products', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true,
   },
   quantity_sold: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 0,
+    type: Number,
+    required: true,
+    default: 0,
   },
   sale_date: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
+    type: Date,
+    required: true,
   },
   unit_price: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: true,
+    type: Number,
+    default: null,
   },
   total_revenue: {
-    type: DataTypes.DECIMAL(12, 2),
-    allowNull: true,
+    type: Number,
+    default: null,
   },
-}, {
-  tableName: 'sales_records',
-  timestamps: false,
 });
 
-module.exports = SalesRecord;
+salesRecordSchema.index({ sale_date: -1 });
+salesRecordSchema.index({ node_id: 1 });
+salesRecordSchema.index({ product_id: 1 });
+
+salesRecordSchema.virtual('id').get(function () {
+  return this._id.toHexString();
+});
+salesRecordSchema.set('toJSON', { virtuals: true });
+salesRecordSchema.set('toObject', { virtuals: true });
+
+module.exports = mongoose.model('SalesRecord', salesRecordSchema);

@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { User, Node } = require('../models');
+const { User } = require('../models');
 const { sendError } = require('../utils/responseHelper');
 
 /**
@@ -26,10 +26,9 @@ const authenticate = async (req, res, next) => {
     }
 
     // Fetch user from DB (ensures user still exists and gets fresh data)
-    const user = await User.findByPk(decoded.id, {
-      attributes: { exclude: ['password_hash'] },
-      include: [{ model: Node, as: 'node', attributes: ['id', 'name', 'type', 'location'] }],
-    });
+    const user = await User.findById(decoded.id)
+      .select('-password_hash')
+      .populate('node_id', 'id name type location');
 
     if (!user) {
       return sendError(res, 'User not found', 401);

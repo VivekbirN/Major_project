@@ -1,53 +1,53 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const AnomalyAlert = sequelize.define('AnomalyAlert', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
+const anomalyAlertSchema = new mongoose.Schema({
   node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: { model: 'nodes', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Node',
+    default: null,
   },
   product_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: { model: 'products', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    default: null,
   },
   alert_type: {
-    type: DataTypes.ENUM(
+    type: String,
+    enum: [
       'DEMAND_SPIKE',
       'DEMAND_DROP',
       'OVERSTOCK',
       'UNDERSTOCK',
       'EXPIRY_RISK',
       'SUPPLY_INCONSISTENCY',
-      'SPOILAGE_RISK'
-    ),
-    allowNull: false,
+      'SPOILAGE_RISK',
+    ],
+    required: true,
   },
   severity: {
-    type: DataTypes.ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL'),
-    allowNull: false,
-    defaultValue: 'MEDIUM',
+    type: String,
+    enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'],
+    default: 'MEDIUM',
   },
   message: {
-    type: DataTypes.TEXT,
-    allowNull: false,
+    type: String,
+    required: true,
   },
   status: {
-    type: DataTypes.ENUM('ACTIVE', 'ACKNOWLEDGED', 'RESOLVED'),
-    allowNull: false,
-    defaultValue: 'ACTIVE',
+    type: String,
+    enum: ['ACTIVE', 'ACKNOWLEDGED', 'RESOLVED'],
+    default: 'ACTIVE',
   },
-}, {
-  tableName: 'anomaly_alerts',
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: false,
+  created_at: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
-module.exports = AnomalyAlert;
+anomalyAlertSchema.virtual('id').get(function () {
+  return this._id.toHexString();
+});
+anomalyAlertSchema.set('toJSON', { virtuals: true });
+anomalyAlertSchema.set('toObject', { virtuals: true });
+
+module.exports = mongoose.model('AnomalyAlert', anomalyAlertSchema);

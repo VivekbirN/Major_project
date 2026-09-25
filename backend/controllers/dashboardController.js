@@ -1,33 +1,28 @@
-const { Op, fn, col, literal, sequelize: sq } = require('sequelize');
-const { sequelize, Node, Product, Inventory, AnomalyAlert, SpoilageEvent, InventoryTransaction } = require('../models');
+const mongoose = require('mongoose');
+const { Node, Product, Inventory, AnomalyAlert, SpoilageEvent, InventoryTransaction } = require('../models');
 const { sendSuccess, sendError } = require('../utils/responseHelper');
 
-// Days within which inventory is considered "near expiry"
 const NEAR_EXPIRY_DAYS = 7;
-// Overstock = quantity > threshold * OVERSTOCK_MULTIPLIER
 const OVERSTOCK_MULTIPLIER = 5;
 
 const buildNodeScope = (role, node_id) => ({
-  nodeWhere: role === 'SUPPLY_CHAIN_MANAGER' ? {} : { id: node_id },
+  nodeWhere: role === 'SUPPLY_CHAIN_MANAGER' ? {} : { _id: node_id },
   inventoryWhere: role === 'SUPPLY_CHAIN_MANAGER' ? {} : { node_id },
 });
 
 /**
  * GET /api/v1/dashboard/overview
- * Full supply-chain dashboard data in a single response.
  */
 const getOverview = async (req, res) => {
   try {
     const { role, node_id } = req.user;
     const { nodeWhere, inventoryWhere } = buildNodeScope(role, node_id);
 
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const now = new Date();
     const nearExpiryDate = new Date();
-    nearExpiryDate.setDate(today.getDate() + NEAR_EXPIRY_DAYS);
-    const nearExpiryStr = nearExpiryDate.toISOString().split('T')[0];
+    nearExpiryDate.setDate(now.getDate() + NEAR_EXPIRY_DAYS);
     const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(today.getDate() - 30);
+    thirtyDaysAgo.setDate(now.getDate() - 30);
 
     // ── KPIs ──────────────────────────────────────────────────────────────────
 
@@ -42,153 +37,181 @@ const getOverview = async (req, res) => {
       spoilageAgg,
       inventoryValueAgg,
     ] = await Promise.all([
-      Node.count({ where: nodeWhere }),
-      Product.count(),
-      Inventory.findOne({
-        where: inventoryWhere,
-        attributes: [[fn('SUM', col('quantity')), 'total']],
-        raw: true,
+      Node.countDocuments(nodeWhere),
+      Product.countDocuments(),
+      Inventory.aggregate([
+        { $match: inventoryWhere },
+        { $group: { _id: null, total: { $sum: '$quantity' } } },
+      ]),
+      Inventory.countDocuments({
+        ...inventoryWhere,
+        $expr: { $lte: ['$quantity', '$reorder_threshold'] },
       }),
-      Inventory.count({
-        where: { ...inventoryWhere, quantity: { [Op.lte]: col('reorder_threshold') } },
+      Inventory.countDocuments({
+        ...inventoryWhere,
+        expiry_date: { $gte: now, $lte: nearExpiryDate },
+        quantity: { $gt: 0 },
       }),
-      Inventory.count({
-        where: {
-          ...inventoryWhere,
-          expiry_date: { [Op.between]: [todayStr, nearExpiryStr] },
-          quantity: { [Op.gt]: 0 },
+      Inventory.countDocuments({
+        ...inventoryWhere,
+        $expr: { $gt: ['$quantity', { $multiply: ['$reorder_threshold', OVERSTOCK_MULTIPLIER] }] },
+      }),
+      AnomalyAlert.countDocuments({
+        status: 'ACTIVE',
+        ...(role !== 'SUPPLY_CHAIN_MANAGER' && { node_id }),
+      }),
+      SpoilageEvent.aggregate([
+        {
+          $match: {
+            ...(role !== 'SUPPLY_CHAIN_MANAGER' && { node_id }),
+            event_date: { $gte: thirtyDaysAgo },
+          },
         },
-      }),
-      // Overstock: quantity > reorder_threshold * OVERSTOCK_MULTIPLIER
-      Inventory.count({
-        where: {
-          ...inventoryWhere,
-          quantity: { [Op.gt]: literal(`reorder_threshold * ${OVERSTOCK_MULTIPLIER}`) },
+        {
+          $group: {
+            _id: null,
+            total_loss: { $sum: '$estimated_loss' },
+            event_count: { $sum: 1 },
+          },
         },
-      }),
-      AnomalyAlert.count({
-        where: { status: 'ACTIVE', ...(role !== 'SUPPLY_CHAIN_MANAGER' && { node_id }) },
-      }),
-      SpoilageEvent.findOne({
-        where: {
-          ...(role !== 'SUPPLY_CHAIN_MANAGER' && { node_id }),
-          event_date: { [Op.gte]: thirtyDaysAgo.toISOString().split('T')[0] },
+      ]),
+      Inventory.aggregate([
+        { $match: inventoryWhere },
+        {
+          $lookup: {
+            from: 'products',
+            localField: 'product_id',
+            foreignField: '_id',
+            as: 'product',
+          },
         },
-        attributes: [
-          [fn('SUM', col('estimated_loss')), 'total_loss'],
-          [fn('COUNT', col('SpoilageEvent.id')), 'event_count'],
-        ],
-        raw: true,
-      }),
-      // Inventory value = SUM(quantity * unit_cost)
-      Inventory.findOne({
-        where: inventoryWhere,
-        attributes: [[literal('SUM(quantity * (SELECT unit_cost FROM products WHERE products.id = inventory.product_id))'), 'total_value']],
-        raw: true,
-      }),
+        { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+        {
+          $group: {
+            _id: null,
+            total_value: {
+              $sum: { $multiply: ['$quantity', { $ifNull: ['$product.unit_cost', 0] }] },
+            },
+          },
+        },
+      ]),
     ]);
 
     const kpis = {
       total_nodes: totalNodes,
       total_products: totalProducts,
-      total_inventory_units: parseInt(inventoryAgg?.total) || 0,
-      total_inventory_value: parseFloat(inventoryValueAgg?.total_value) || 0,
+      total_inventory_units: inventoryAgg[0]?.total || 0,
+      total_inventory_value: inventoryValueAgg[0]?.total_value || 0,
       low_stock_items: lowStockCount,
       near_expiry_items: nearExpiryCount,
       overstock_items: overstockCount,
       active_alerts: activeAlerts,
       recent_spoilage: {
-        count: parseInt(spoilageAgg?.event_count) || 0,
-        estimated_loss: parseFloat(spoilageAgg?.total_loss) || 0,
+        count: spoilageAgg[0]?.event_count || 0,
+        estimated_loss: spoilageAgg[0]?.total_loss || 0,
       },
     };
 
     // ── Nodes Table ───────────────────────────────────────────────────────────
-    const nodes = await Node.findAll({
-      where: nodeWhere,
-      order: [['name', 'ASC']],
-      raw: true,
-    });
 
-    // For each node, get inventory stats
-    const nodeIds = nodes.map(n => n.id);
-    const nodeInventoryStats = await Inventory.findAll({
-      where: { node_id: { [Op.in]: nodeIds } },
-      attributes: [
-        'node_id',
-        [fn('SUM', col('quantity')), 'total_qty'],
-        [fn('COUNT', col('id')), 'product_count'],
-        [fn('SUM', literal('CASE WHEN quantity <= reorder_threshold THEN 1 ELSE 0 END')), 'low_stock_count'],
-        [fn('SUM', literal(`CASE WHEN expiry_date BETWEEN '${todayStr}' AND '${nearExpiryStr}' AND quantity > 0 THEN 1 ELSE 0 END`)), 'near_expiry_count'],
-      ],
-      group: ['node_id'],
-      raw: true,
-    });
+    const nodes = await Node.find(nodeWhere).sort({ name: 1 }).lean();
+    const nodeIds = nodes.map(n => n._id);
+
+    const nodeInventoryStats = await Inventory.aggregate([
+      { $match: { node_id: { $in: nodeIds } } },
+      {
+        $group: {
+          _id: '$node_id',
+          total_qty: { $sum: '$quantity' },
+          product_count: { $sum: 1 },
+          low_stock_count: {
+            $sum: { $cond: [{ $lte: ['$quantity', '$reorder_threshold'] }, 1, 0] },
+          },
+          near_expiry_count: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $gte: ['$expiry_date', now] },
+                    { $lte: ['$expiry_date', nearExpiryDate] },
+                    { $gt: ['$quantity', 0] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]);
 
     const nodeStatsMap = {};
-    nodeInventoryStats.forEach(s => { nodeStatsMap[s.node_id] = s; });
+    nodeInventoryStats.forEach(s => { nodeStatsMap[s._id.toString()] = s; });
 
     const nodesWithStats = nodes.map(node => {
-      const stats = nodeStatsMap[node.id] || {};
-      const totalQty = parseInt(stats.total_qty) || 0;
+      const stats = nodeStatsMap[node._id.toString()] || {};
+      const totalQty = stats.total_qty || 0;
       const utilization = node.capacity > 0 ? Math.round((totalQty / node.capacity) * 100) : 0;
       return {
         ...node,
+        id: node._id.toString(),
         current_inventory: totalQty,
         capacity_utilization: utilization,
-        product_count: parseInt(stats.product_count) || 0,
-        low_stock_count: parseInt(stats.low_stock_count) || 0,
-        near_expiry_count: parseInt(stats.near_expiry_count) || 0,
+        product_count: stats.product_count || 0,
+        low_stock_count: stats.low_stock_count || 0,
+        near_expiry_count: stats.near_expiry_count || 0,
       };
     });
 
     // ── Low-Stock Items ───────────────────────────────────────────────────────
-    const lowStockItems = await Inventory.findAll({
-      where: { ...inventoryWhere, quantity: { [Op.lte]: col('reorder_threshold') } },
-      include: [
-        { model: Node, as: 'node', attributes: ['id', 'name', 'type'] },
-        { model: Product, as: 'product', attributes: ['id', 'sku', 'name', 'category', 'unit_cost'] },
-      ],
-      order: [['quantity', 'ASC']],
-      limit: 10,
-    });
+
+    const lowStockItems = await Inventory.find({
+      ...inventoryWhere,
+      $expr: { $lte: ['$quantity', '$reorder_threshold'] },
+    })
+      .populate('node_id', 'id name type')
+      .populate('product_id', 'id sku name category unit_cost')
+      .sort({ quantity: 1 })
+      .limit(10);
 
     // ── Near-Expiry Items ──────────────────────────────────────────────────────
-    const nearExpiryItems = await Inventory.findAll({
-      where: {
-        ...inventoryWhere,
-        expiry_date: { [Op.between]: [todayStr, nearExpiryStr] },
-        quantity: { [Op.gt]: 0 },
-      },
-      include: [
-        { model: Node, as: 'node', attributes: ['id', 'name', 'type'] },
-        { model: Product, as: 'product', attributes: ['id', 'sku', 'name', 'category', 'unit_cost'] },
-      ],
-      order: [['expiry_date', 'ASC']],
-      limit: 10,
-    });
+
+    const nearExpiryItems = await Inventory.find({
+      ...inventoryWhere,
+      expiry_date: { $gte: now, $lte: nearExpiryDate },
+      quantity: { $gt: 0 },
+    })
+      .populate('node_id', 'id name type')
+      .populate('product_id', 'id sku name category unit_cost')
+      .sort({ expiry_date: 1 })
+      .limit(10);
 
     // ── Inventory by Category ─────────────────────────────────────────────────
-    const inventoryByCategory = await Inventory.findAll({
-      where: inventoryWhere,
-      attributes: ['product_id', [fn('SUM', col('Inventory.quantity')), 'total_qty']],
-      include: [{ model: Product, as: 'product', attributes: ['category'] }],
-      group: ['product.category', 'Inventory.product_id'],
-      raw: true,
-    });
 
-    const categoryMap = {};
-    inventoryByCategory.forEach(r => {
-      const cat = r['product.category'];
-      categoryMap[cat] = (categoryMap[cat] || 0) + parseInt(r.total_qty);
-    });
-    const categoryData = Object.entries(categoryMap)
-      .map(([category, total]) => ({ category, total }))
-      .sort((a, b) => b.total - a.total);
+    const inventoryByCategory = await Inventory.aggregate([
+      { $match: inventoryWhere },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'product_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      { $group: { _id: '$product.category', total: { $sum: '$quantity' } } },
+      { $sort: { total: -1 } },
+    ]);
+
+    const categoryData = inventoryByCategory
+      .filter(r => r._id)
+      .map(r => ({ category: r._id, total: r.total }));
 
     // ── Inventory by Node ──────────────────────────────────────────────────────
+
     const inventoryByNode = nodesWithStats.map(n => ({
-      node_id: n.id,
+      node_id: n._id || n.id,
       node_name: n.name,
       node_type: n.type,
       total: n.current_inventory,

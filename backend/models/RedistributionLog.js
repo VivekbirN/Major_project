@@ -1,48 +1,44 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const RedistributionLog = sequelize.define('RedistributionLog', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
+const redistributionLogSchema = new mongoose.Schema({
   source_node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'nodes', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Node',
+    required: true,
   },
   destination_node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'nodes', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Node',
+    required: true,
   },
   product_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'products', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true,
   },
   quantity: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
+    type: Number,
+    required: true,
   },
   status: {
-    type: DataTypes.ENUM('PENDING', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED'),
-    allowNull: false,
-    defaultValue: 'PENDING',
+    type: String,
+    enum: ['PENDING', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED'],
+    default: 'PENDING',
   },
   created_at: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW,
+    type: Date,
+    default: Date.now,
   },
   completed_at: {
-    type: DataTypes.DATE,
-    allowNull: true,
+    type: Date,
+    default: null,
   },
-}, {
-  tableName: 'redistribution_logs',
-  timestamps: false,
 });
 
-module.exports = RedistributionLog;
+redistributionLogSchema.virtual('id').get(function () {
+  return this._id.toHexString();
+});
+redistributionLogSchema.set('toJSON', { virtuals: true });
+redistributionLogSchema.set('toObject', { virtuals: true });
+
+module.exports = mongoose.model('RedistributionLog', redistributionLogSchema);

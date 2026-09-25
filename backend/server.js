@@ -3,20 +3,20 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 
-const { sequelize } = require('./models');
+const connectDB = require('./config/database');
 const { errorHandler } = require('./middleware/errorHandler');
 const { sendSuccess } = require('./utils/responseHelper');
 
 // Route imports
-const authRoutes = require('./routes/authRoutes');
+const authRoutes      = require('./routes/authRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
-const nodeRoutes = require('./routes/nodeRoutes');
-const productRoutes = require('./routes/productRoutes');
-const spoilageRoutes = require('./routes/spoilageRoutes');
-const mlRoutes = require('./routes/mlRoutes');
+const nodeRoutes      = require('./routes/nodeRoutes');
+const productRoutes   = require('./routes/productRoutes');
+const spoilageRoutes  = require('./routes/spoilageRoutes');
+const mlRoutes        = require('./routes/mlRoutes');
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 5000;
 
 // ── Middleware ────────────────────────────────────────────────────────────────
@@ -44,13 +44,13 @@ app.get('/api/v1/health', (req, res) => {
 
 // ── API Routes ────────────────────────────────────────────────────────────────
 
-app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/auth',      authRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/inventory', inventoryRoutes);
-app.use('/api/v1/nodes', nodeRoutes);
-app.use('/api/v1/products', productRoutes);
-app.use('/api/v1/spoilage', spoilageRoutes);
-app.use('/api/v1/ml', mlRoutes);
+app.use('/api/v1/nodes',     nodeRoutes);
+app.use('/api/v1/products',  productRoutes);
+app.use('/api/v1/spoilage',  spoilageRoutes);
+app.use('/api/v1/ml',        mlRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 
@@ -66,12 +66,7 @@ app.use(errorHandler);
 
 const startServer = async () => {
   try {
-    await sequelize.authenticate();
-    console.log('✅ Database connection established');
-
-    // Sync new tables without dropping existing ones
-    await sequelize.sync({ alter: false });
-    console.log('✅ Database models synchronized');
+    await connectDB();
 
     app.listen(PORT, () => {
       console.log(`🚀 FoodChain AI backend running on http://localhost:${PORT}`);

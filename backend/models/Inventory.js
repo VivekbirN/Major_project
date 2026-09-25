@@ -1,44 +1,44 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const Inventory = sequelize.define('Inventory', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
+const inventorySchema = new mongoose.Schema({
   node_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'nodes', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Node',
+    required: true,
   },
   product_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: { model: 'products', key: 'id' },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true,
   },
   quantity: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 0,
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
   },
   reorder_threshold: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 50,
+    type: Number,
+    default: 50,
+    min: 0,
   },
   expiry_date: {
-    type: DataTypes.DATEONLY,
-    allowNull: true,
+    type: Date,
+    default: null,
   },
   last_updated: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW,
+    type: Date,
+    default: Date.now,
   },
-}, {
-  tableName: 'inventory',
-  timestamps: false,
 });
 
-module.exports = Inventory;
+// Compound unique index — same as original SQL UNIQUE constraint enforced in app logic
+inventorySchema.index({ node_id: 1, product_id: 1 }, { unique: true });
+
+inventorySchema.virtual('id').get(function () {
+  return this._id.toHexString();
+});
+inventorySchema.set('toJSON', { virtuals: true });
+inventorySchema.set('toObject', { virtuals: true });
+
+module.exports = mongoose.model('Inventory', inventorySchema);
