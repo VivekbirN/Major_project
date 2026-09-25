@@ -50,6 +50,8 @@ build/
 ml/models/*.joblib
 ml/models/*.pkl
 ml/models/*.h5
+ml/data/train.parquet
+ml/data/train.parquet
 
 # Coverage
 coverage/
